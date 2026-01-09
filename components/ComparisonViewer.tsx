@@ -256,7 +256,7 @@ const ComparisonViewer: React.FC<ComparisonViewerProps> = ({
             {/* Reference (Top - Clipped) */}
             <div className={wrapperStyle} style={{ clipPath: `inset(0 ${100 - sliderPosition}% 0 0)` }}>
                 <img src={refImage} style={imgStyle} draggable={false} />
-                <div className="absolute top-0 right-0 h-full border-r-2 border-[#c7023a] drop-shadow-md"></div>
+                <div className="absolute top-0 right-0 h-full border-r border-[#c7023a]/50 drop-shadow-sm"></div>
             </div>
             {/* Slider Handle */}
             <div 
@@ -272,12 +272,11 @@ const ComparisonViewer: React.FC<ComparisonViewerProps> = ({
                     setIsSliding(false); 
                 }}
             >
-                {/* Visual Line */}
-                <div className="absolute top-0 bottom-0 w-0.5 bg-[#c7023a] shadow-[0_0_10px_rgba(199,2,58,0.5)]"></div>
-                {/* Handle Circle */}
-                <div className="w-8 h-8 rounded-full bg-[#c7023a] text-white flex items-center justify-center shadow-lg border-2 border-black transform transition-transform group-hover:scale-110">
-                    <Columns size={14} className="fill-current" />
-                </div>
+                {/* Visual Line - Minimalist */}
+                <div className="absolute top-0 bottom-0 w-[1px] bg-white/30 backdrop-blur-sm group-hover:bg-[#c7023a] transition-colors"></div>
+                
+                {/* Minimalist Circle Handle */}
+                <div className="w-4 h-4 rounded-full bg-white/20 backdrop-blur-md border border-white/40 shadow-sm transform transition-all group-hover:scale-125 group-hover:bg-[#c7023a] group-hover:border-[#c7023a]"></div>
             </div>
             <Badge label="REF" position="left" />
             <Badge label="RENDER" position="right" />
