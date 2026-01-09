@@ -179,6 +179,17 @@ function App() {
       }
   }, [currentGroupIdx, filteredCommunityGroups, currentUser]);
 
+  // --- DATE HELPER ---
+  const formatDateTime = (isoString: string) => {
+      if (!isoString) return '';
+      return new Date(isoString).toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+      });
+  };
+
 
   // --- EFFECTS ---
   
@@ -1337,31 +1348,29 @@ function App() {
                                             onFullViewToggle={() => setFullViewSource(prev => prev === 'REF' ? 'RENDER' : 'REF')} 
                                         />
 
-                                        {/* NAVIGATION ARROWS IN MODAL - MOVED INSIDE */}
+                                        {/* NAVIGATION ARROWS IN MODAL - MOVED INSIDE & MADE SMALLER */}
                                         {hasPrev && (
-                                            <button onClick={() => navigateGroup('prev')} className="absolute left-4 top-1/2 -translate-y-1/2 z-50 p-4 bg-black/60 hover:bg-[#c7023a] text-white rounded-full backdrop-blur border border-white/20 transition-all shadow-xl hover:scale-110 group-hover/image-area:opacity-100 opacity-0 transition-opacity duration-300">
-                                                <ChevronLeft size={32} />
+                                            <button onClick={() => navigateGroup('prev')} className="absolute left-2 top-1/2 -translate-y-1/2 z-50 p-2 bg-black/40 hover:bg-[#c7023a] text-white rounded-full backdrop-blur border border-white/10 transition-all shadow-lg hover:scale-105 group-hover/image-area:opacity-100 opacity-0 transition-opacity duration-300">
+                                                <ChevronLeft size={20} />
                                             </button>
                                         )}
                                         {hasNext && (
-                                            <button onClick={() => navigateGroup('next')} className="absolute right-4 top-1/2 -translate-y-1/2 z-50 p-4 bg-black/60 hover:bg-[#c7023a] text-white rounded-full backdrop-blur border border-white/20 transition-all shadow-xl hover:scale-110 group-hover/image-area:opacity-100 opacity-0 transition-opacity duration-300">
-                                                <ChevronRight size={32} />
+                                            <button onClick={() => navigateGroup('next')} className="absolute right-2 top-1/2 -translate-y-1/2 z-50 p-2 bg-black/40 hover:bg-[#c7023a] text-white rounded-full backdrop-blur border border-white/10 transition-all shadow-lg hover:scale-105 group-hover/image-area:opacity-100 opacity-0 transition-opacity duration-300">
+                                                <ChevronRight size={20} />
                                             </button>
                                         )}
                                      </div>
                                      
-                                     <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md border border-white/10 rounded-full px-5 py-3 flex items-center gap-4 shadow-2xl">
-                                         <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Version History</span>
-                                         <div className="flex items-center gap-2">
-                                             {studentViewAssignmentGroup.map((_, idx) => (
-                                                 <button 
-                                                    key={idx}
-                                                    onClick={() => setViewingVersionIndex(idx)}
-                                                    className={`w-3 h-3 rounded-full transition-all ${idx === viewingVersionIndex ? 'bg-[#c7023a] scale-125 shadow-[0_0_10px_#c7023a]' : 'bg-zinc-700 hover:bg-zinc-500'}`}
-                                                    title={`View Version ${idx + 1}`}
-                                                 />
-                                             ))}
-                                         </div>
+                                     {/* MINIMIZED VERSION HISTORY DOTS */}
+                                     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-md border border-white/10 rounded-full px-3 py-2 flex items-center gap-1.5 shadow-xl">
+                                         {studentViewAssignmentGroup.map((_, idx) => (
+                                             <button 
+                                                key={idx}
+                                                onClick={() => setViewingVersionIndex(idx)}
+                                                className={`w-2 h-2 rounded-full transition-all ${idx === viewingVersionIndex ? 'bg-[#c7023a] scale-125' : 'bg-white/30 hover:bg-white/60'}`}
+                                                title={`View Version ${idx + 1}`}
+                                             />
+                                         ))}
                                      </div>
                                  </div>
 
@@ -1373,6 +1382,13 @@ function App() {
                                                 <div className="bg-zinc-900/50 p-4 rounded-xl border border-white/5 mt-4">
                                                     <div className="text-[10px] font-bold text-zinc-500 uppercase mb-2 tracking-wider">Student Note</div>
                                                     <p className="text-sm text-zinc-300 italic leading-relaxed">"{currentVersion.studentMessage}"</p>
+                                                </div>
+                                                {/* ADDED: Timestamps in Teacher View */}
+                                                <div className="mt-4 space-y-1">
+                                                    <div className="text-[10px] text-zinc-500 flex justify-between">
+                                                        <span>Submitted:</span>
+                                                        <span className="text-zinc-300">{formatDateTime(currentVersion.submissionDate)}</span>
+                                                    </div>
                                                 </div>
                                             </div>
 
@@ -1406,6 +1422,12 @@ function App() {
                                                     <h3 className={`text-xl font-bold mb-2 ${currentVersion.status === 'APPROVED' ? 'text-emerald-500' : 'text-red-500'}`}>
                                                         ALREADY {currentVersion.status}
                                                     </h3>
+                                                    {/* ADDED: Graded Time in Teacher View */}
+                                                    {currentVersion.feedback && currentVersion.feedback.length > 0 && (
+                                                         <div className="text-xs text-zinc-500 mt-2">
+                                                             Graded: {formatDateTime(currentVersion.feedback[currentVersion.feedback.length - 1].date)}
+                                                         </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -1413,6 +1435,21 @@ function App() {
                                         <>
                                             <div className="p-6 border-b border-white/5">
                                                 <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-4">Submission Details</h3>
+                                                
+                                                {/* ADDED: Timestamps in Student View */}
+                                                <div className="flex flex-col gap-1 mb-4 text-[10px] text-zinc-500 border-b border-zinc-800/50 pb-4">
+                                                    <div className="flex justify-between">
+                                                        <span>Submitted:</span>
+                                                        <span className="text-zinc-300 font-medium">{formatDateTime(currentVersion.submissionDate)}</span>
+                                                    </div>
+                                                    {(currentVersion.status === 'APPROVED' || currentVersion.status === 'REJECTED') && currentVersion.feedback && currentVersion.feedback.length > 0 && (
+                                                        <div className="flex justify-between">
+                                                            <span>Graded:</span>
+                                                            <span className="text-zinc-300 font-medium">{formatDateTime(currentVersion.feedback[currentVersion.feedback.length - 1].date)}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+
                                                 <div className="space-y-4">
                                                     <div className="bg-zinc-900/50 p-4 rounded-xl border border-white/5">
                                                         <div className="text-[10px] text-zinc-500 font-bold mb-2 uppercase tracking-wider">Student Note</div>
