@@ -505,13 +505,18 @@ function App() {
   const handleSaveProfileRefs = async () => {
     if (!currentUser) return;
     
+    // UPDATED: Logic to Auto-Unlock First Assignment
+    const firstStep = currentUser.classType === 'MASTER_CLASS' ? 'BOX_MODELING' : 'COLOR_RENDERING';
+    const currentProgress = currentUser.progress || { INTERIOR: [], EXTERIOR: [] };
+    
+    // Explicitly add first step if missing
+    if (!currentProgress.INTERIOR.includes(firstStep)) currentProgress.INTERIOR.push(firstStep);
+    if (!currentProgress.EXTERIOR.includes(firstStep)) currentProgress.EXTERIOR.push(firstStep);
+
     const updates = {
         interior_ref_url: newInteriorRef || currentUser.interiorRefUrl,
         exterior_ref_url: newExteriorRef || currentUser.exteriorRefUrl,
-        progress: currentUser.progress || {
-            INTERIOR: currentUser.classType === 'MASTER_CLASS' ? ['BOX_MODELING'] : ['COLOR_RENDERING'],
-            EXTERIOR: currentUser.classType === 'MASTER_CLASS' ? ['BOX_MODELING'] : ['COLOR_RENDERING']
-        }
+        progress: currentProgress // Use the updated progress object
     };
 
     try {
@@ -1483,6 +1488,7 @@ function App() {
                                                                     setDetectedStep(currentVersion.category);
                                                                     setActiveTab('SUBMIT');
                                                                     setSubmitStep('UPLOAD_RENDER');
+                                                                    setViewingGroupParams(null); // Close the modal
                                                                 }}
                                                                 className="w-full py-4 bg-white hover:bg-zinc-200 text-black font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all"
                                                             >
