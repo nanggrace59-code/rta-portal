@@ -19,7 +19,8 @@ import {
   PlusCircle,
   Camera,
   Layers,
-  Sparkles
+  Sparkles,
+  ChevronLeft
 } from 'lucide-react';
 import ComparisonViewer from './components/ComparisonViewer';
 import { Assignment, AssignmentStatus, AssignmentCategory, Feedback, User } from './types';
@@ -68,8 +69,8 @@ function App() {
   // --- Global State ---
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [allUsers, setAllUsers] = useState<User[]>([]); // Replaces MOCK_USERS
-  const [assignments, setAssignments] = useState<Assignment[]>([]); // Replaces INITIAL_ASSIGNMENTS
+  const [allUsers, setAllUsers] = useState<User[]>([]); 
+  const [assignments, setAssignments] = useState<Assignment[]>([]); 
   const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'SUBMIT' | 'COMMUNITY' | 'PROFILE'>('DASHBOARD');
   
   // --- Auth State ---
@@ -97,7 +98,10 @@ function App() {
   // --- Submission Form State ---
   const [selectedProjectForSubmit, setSelectedProjectForSubmit] = useState<'INTERIOR' | 'EXTERIOR' | null>(null);
   const [detectedStep, setDetectedStep] = useState<AssignmentCategory | null>(null);
-  const [uploadRender, setUploadRender] = useState<string | null>(null);
+  
+  // CHANGED: Support multiple uploads
+  const [uploadRenders, setUploadRenders] = useState<string[]>([]);
+  
   const [submissionMessage, setSubmissionMessage] = useState('');
   const [submitStep, setSubmitStep] = useState<'SELECT_PROJECT' | 'UPLOAD_RENDER' | 'VERIFY'>('SELECT_PROJECT');
 
@@ -136,7 +140,6 @@ function App() {
 
   // --- SUPABASE INITIALIZATION & FETCHING ---
 
-  // 1. Listen for Auth Changes
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -160,7 +163,6 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Fetch User Profile
   const fetchProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase
@@ -184,8 +186,6 @@ function App() {
       };
 
       setCurrentUser(user);
-      
-      // If logged in, fetch application data
       fetchApplicationData();
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -193,11 +193,8 @@ function App() {
     }
   };
 
-  // 3. Fetch All Users and Assignments
   const fetchApplicationData = async () => {
     try {
-      // Fetch all profiles (MOCK_USERS replacement)
-      // RLS policies should determine visibility, but for now we fetch all needed for UI
       const { data: profiles, error: profilesError } = await supabase.from('profiles').select('*');
       if (profilesError) throw profilesError;
 
@@ -214,13 +211,9 @@ function App() {
       }));
       setAllUsers(mappedUsers);
 
-      // Fetch all assignments with feedback
       const { data: assigns, error: assignError } = await supabase
         .from('assignments')
-        .select(`
-          *,
-          feedback (*)
-        `);
+        .select(`*, feedback (*)`);
       if (assignError) throw assignError;
 
       const mappedAssignments: Assignment[] = assigns.map((a: any) => ({
@@ -252,8 +245,14 @@ function App() {
 
 
   // --- EFFECTS ---
+  
+  // FIX: Black Screen Issue & Default Tab
+  // Automatically switch to SUBMIT tab if student logs in
   useEffect(() => {
     if (currentUser?.role === 'STUDENT') {
+       if (activeTab === 'DASHBOARD') {
+           setActiveTab('SUBMIT');
+       }
        if (currentUser.classType === 'VIZ_CLASS') {
            setCommunityTab('VIZ');
        } else {
@@ -291,7 +290,7 @@ function App() {
   };
 
   const getProjectProgress = (studentId: string, projectType: 'INTERIOR' | 'EXTERIOR') => {
-      const student = allUsers.find(u => u.id === studentId); // Changed MOCK_USERS to allUsers
+      const student = allUsers.find(u => u.id === studentId);
       if (!student || !student.classType) return [];
 
       const curriculum = CURRICULUM[student.classType];
@@ -337,19 +336,26 @@ function App() {
       return stepStatus;
   };
 
+  // UPDATED: Sort by Newest First (b - a)
   const getCommunityGroupedAssignments = (filteredAssignments: Assignment[]) => {
       const grouped: Record<string, Assignment[]> = {};
       filteredAssignments.forEach(a => {
-          const key = `${a.studentId}-${a.category}`;
+          const key = `${a.studentId}-${a.category}-${a.referenceImage}`;
           if (!grouped[key]) grouped[key] = [];
           grouped[key].push(a);
       });
       return Object.values(grouped).map(group => {
+          // Sort versions within group
           return group.sort((a,b) => {
             const dA = new Date(a.submissionDate).getTime();
             const dB = new Date(b.submissionDate).getTime();
-            return dA === dB ? a.id.localeCompare(b.id) : dA - dB;
+            return dA - dB;
           });
+      }).sort((groupA, groupB) => {
+          // Sort groups by latest submission date (Newest First)
+          const latestA = groupA[groupA.length - 1];
+          const latestB = groupB[groupB.length - 1];
+          return new Date(latestB.submissionDate).getTime() - new Date(latestA.submissionDate).getTime();
       });
   };
 
@@ -369,7 +375,6 @@ function App() {
         setLoginError(error.message);
         setLoading(false);
     }
-    // Auth state listener will handle the rest
   };
 
   const handleLogout = async () => {
@@ -382,29 +387,41 @@ function App() {
 
   const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>, 
-    setter: (val: string | null) => void, 
+    setter: (val: any) => void, 
     bucket: 'avatars' | 'references' | 'renders',
     nextStep?: () => void
   ) => {
-    if (!e.target.files || !e.target.files[0]) return;
+    if (!e.target.files || e.target.files.length === 0) return;
 
-    const file = e.target.files[0];
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Math.random()}.${fileExt}`;
-    const filePath = `${currentUser?.id}/${fileName}`;
+    // CHANGED: Handle multiple files
+    const newUrls: string[] = [];
+    const files = Array.from(e.target.files);
 
     try {
-        const { error: uploadError } = await supabase.storage
-            .from(bucket)
-            .upload(filePath, file);
+        for (const file of files) {
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${Math.random()}.${fileExt}`;
+            const filePath = `${currentUser?.id}/${fileName}`;
 
-        if (uploadError) throw uploadError;
+            const { error: uploadError } = await supabase.storage
+                .from(bucket)
+                .upload(filePath, file);
 
-        const { data: { publicUrl } } = supabase.storage
-            .from(bucket)
-            .getPublicUrl(filePath);
+            if (uploadError) throw uploadError;
 
-        setter(publicUrl);
+            const { data: { publicUrl } } = supabase.storage
+                .from(bucket)
+                .getPublicUrl(filePath);
+            
+            newUrls.push(publicUrl);
+        }
+
+        if (bucket === 'renders') {
+            setter(newUrls); // Sets array
+        } else {
+            setter(newUrls[0]); // Single for avatar/ref
+        }
+        
         if (nextStep) nextStep();
 
     } catch (error) {
@@ -416,11 +433,9 @@ function App() {
   const handleSaveProfileRefs = async () => {
     if (!currentUser) return;
     
-    // We already have the URLs in state from handleFileUpload (which now does real upload)
     const updates = {
         interior_ref_url: newInteriorRef || currentUser.interiorRefUrl,
         exterior_ref_url: newExteriorRef || currentUser.exteriorRefUrl,
-        // Initialize progress if empty
         progress: currentUser.progress || {
             INTERIOR: currentUser.classType === 'MASTER_CLASS' ? ['BOX_MODELING'] : ['COLOR_RENDERING'],
             EXTERIOR: currentUser.classType === 'MASTER_CLASS' ? ['BOX_MODELING'] : ['COLOR_RENDERING']
@@ -435,7 +450,6 @@ function App() {
 
         if (error) throw error;
 
-        // Update local state optimistic/fetch
         await fetchProfile(currentUser.id);
         setIsOnboarding(false);
         setIsEditingRefs(false);
@@ -446,18 +460,13 @@ function App() {
     }
   };
 
-  // Profile Avatar Upload Handler (Direct Supabase)
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       await handleFileUpload(e, async (url) => {
           if (!currentUser || !url) return;
-          
           try {
              const { error } = await supabase.from('profiles').update({ avatar_url: url }).eq('id', currentUser.id);
              if (error) throw error;
-             
-             // Refresh local user
              setCurrentUser({ ...currentUser, avatarUrl: url });
-             // Refresh list
              setAllUsers(allUsers.map(u => u.id === currentUser.id ? { ...u, avatarUrl: url } : u));
           } catch(err) {
               console.error(err);
@@ -466,7 +475,7 @@ function App() {
   };
 
   const resetForms = () => {
-    setUploadRender(null);
+    setUploadRenders([]);
     setSelectedProjectForSubmit(null);
     setDetectedStep(null);
     setSubmissionMessage('');
@@ -498,30 +507,33 @@ function App() {
   };
 
   const handleSubmitAssignment = async () => {
-    if (!currentUser || !uploadRender || !detectedStep || !selectedProjectForSubmit) return;
+    if (!currentUser || uploadRenders.length === 0 || !detectedStep || !selectedProjectForSubmit) return;
     
     const refImage = selectedProjectForSubmit === 'INTERIOR' ? currentUser.interiorRefUrl : currentUser.exteriorRefUrl;
     if (!refImage) return;
 
-    // Determine week/version number based on existing assignments
-    const existing = assignments.filter(a => a.studentId === currentUser.id && a.category === detectedStep && a.referenceImage === refImage);
-    const weekNumber = existing.length + 1;
-
     try {
-        const { error } = await supabase.from('assignments').insert({
-            student_id: currentUser.id,
-            student_message: submissionMessage,
-            week: weekNumber,
-            category: detectedStep,
-            reference_image: refImage,
-            render_image: uploadRender,
-            status: 'PENDING',
-            submission_date: new Date().toISOString()
-        });
+        // CHANGED: Loop through all uploaded renders and create assignments
+        const existing = assignments.filter(a => a.studentId === currentUser.id && a.category === detectedStep && a.referenceImage === refImage);
+        let currentWeek = existing.length + 1;
 
-        if (error) throw error;
+        for (const renderUrl of uploadRenders) {
+            const { error } = await supabase.from('assignments').insert({
+                student_id: currentUser.id,
+                student_message: submissionMessage,
+                week: currentWeek,
+                category: detectedStep,
+                reference_image: refImage,
+                render_image: renderUrl,
+                status: 'PENDING',
+                submission_date: new Date().toISOString()
+            });
 
-        await fetchApplicationData(); // Refresh all data
+            if (error) throw error;
+            currentWeek++;
+        }
+
+        await fetchApplicationData(); 
         setActiveTab('PROFILE');
         resetForms();
 
@@ -531,6 +543,7 @@ function App() {
     }
   };
 
+  // UPDATED: Handle Auto-Unlock on Approve
   const handleTeacherAction = async (targetAssignmentId: string, action: 'APPROVE' | 'REJECT') => {
     if (!currentUser) return;
 
@@ -540,7 +553,7 @@ function App() {
             assignment_id: targetAssignmentId,
             teacher_id: currentUser.id,
             type: action,
-            message: teacherFeedback
+            message: teacherFeedback || (action === 'APPROVE' ? 'Great work!' : 'Please revise.')
         });
         if (feedbackError) throw feedbackError;
 
@@ -550,6 +563,39 @@ function App() {
             .update({ status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED' })
             .eq('id', targetAssignmentId);
         if (statusError) throw statusError;
+
+        // 3. AUTO UNLOCK LOGIC
+        if (action === 'APPROVE') {
+            const assignment = assignments.find(a => a.id === targetAssignmentId);
+            const student = allUsers.find(u => u.id === assignment?.studentId);
+            
+            if (assignment && student && student.classType) {
+                const isInterior = assignment.referenceImage === student.interiorRefUrl;
+                const track = isInterior ? 'INTERIOR' : 'EXTERIOR';
+                
+                const curriculum = CURRICULUM[student.classType];
+                const currentIndex = curriculum.indexOf(assignment.category);
+                
+                // If there is a next step
+                if (currentIndex !== -1 && currentIndex < curriculum.length - 1) {
+                    const nextStep = curriculum[currentIndex + 1];
+                    const currentProgress = student.progress ? [...student.progress[track]] : [];
+                    
+                    if (!currentProgress.includes(nextStep)) {
+                        currentProgress.push(nextStep);
+                        const updatedProgress = {
+                            ...student.progress,
+                            [track]: currentProgress
+                        };
+
+                        await supabase
+                            .from('profiles')
+                            .update({ progress: updatedProgress })
+                            .eq('id', student.id);
+                    }
+                }
+            }
+        }
 
         await fetchApplicationData();
         setTeacherFeedback('');
@@ -563,31 +609,14 @@ function App() {
       const user = allUsers.find(u => u.id === studentId);
       if (user && user.progress) {
           let newProgress = [...user.progress[project]];
-          
           if (newProgress.includes(step)) {
               newProgress = newProgress.filter(s => s !== step);
           } else {
               newProgress.push(step);
           }
-
-          const updatedProgressObj = {
-              ...user.progress,
-              [project]: newProgress
-          };
-
-          try {
-              const { error } = await supabase
-                  .from('profiles')
-                  .update({ progress: updatedProgressObj })
-                  .eq('id', studentId);
-              
-              if (error) throw error;
-              
-              // Optimistic update
-              setAllUsers(allUsers.map(u => u.id === studentId ? { ...u, progress: updatedProgressObj } : u));
-          } catch(err) {
-              console.error('Error toggling lock:', err);
-          }
+          const updatedProgressObj = { ...user.progress, [project]: newProgress };
+          await supabase.from('profiles').update({ progress: updatedProgressObj }).eq('id', studentId);
+          setAllUsers(allUsers.map(u => u.id === studentId ? { ...u, progress: updatedProgressObj } : u));
       }
   };
 
@@ -848,17 +877,15 @@ function App() {
   };
 
   const renderProfileView = (userId: string) => {
-    const user = allUsers.find(u => u.id === userId); // changed MOCK_USERS to allUsers
+    const user = allUsers.find(u => u.id === userId);
     if (!user) return null;
 
     const isMe = currentUser && userId === currentUser.id;
 
     return (
         <div className="animate-fade-in space-y-6">
-            {/* UPDATED: Minimal Profile Header */}
             <div className="flex items-center justify-between p-8 bg-zinc-900/30 border border-white/5 rounded-2xl backdrop-blur-sm">
                 <div className="flex items-center gap-6">
-                    {/* AVATAR UPLOAD SECTION */}
                     <div className="relative group">
                         <img src={user.avatarUrl} className="w-24 h-24 rounded-full bg-zinc-800 border-2 border-white/10 object-cover" />
                         {isMe && (
@@ -876,7 +903,7 @@ function App() {
                         </div>
                     </div>
                 </div>
-                {isMe && !isEditingRefs && (
+                {isMe && (
                   <button onClick={() => setIsEditingRefs(true)} className="flex items-center gap-2 px-4 py-2 text-xs font-bold bg-zinc-900 border border-white/10 hover:border-white/30 rounded-lg text-white transition-colors tracking-wide">
                      <Edit2 size={12} /> EDIT REFS
                   </button>
@@ -903,25 +930,33 @@ function App() {
       <div className="flex-1 space-y-2 w-full px-2 flex flex-col items-center">
         {currentUser && currentUser.role === 'STUDENT' ? (
           <>
-            <NavIcon active={activeTab === 'COMMUNITY'} onClick={() => { setActiveTab('COMMUNITY'); setViewingStudentId(null); }} icon={Globe} label="Community" />
+            {/* UPDATED: Upload First, then Community, Profile moved up */}
             <NavIcon active={activeTab === 'SUBMIT'} onClick={() => { setActiveTab('SUBMIT'); resetForms(); }} icon={Upload} label="Submit" />
+            <NavIcon active={activeTab === 'COMMUNITY'} onClick={() => { setActiveTab('COMMUNITY'); setViewingStudentId(null); }} icon={Globe} label="Community" />
+            <button 
+                onClick={() => { setActiveTab('PROFILE'); setViewingStudentId(null); }}
+                className={`w-10 h-10 flex items-center justify-center rounded-full transition-all border-2 mb-3 ${activeTab === 'PROFILE' ? 'border-[#c7023a] p-0.5' : 'border-transparent hover:border-zinc-700'}`}
+                title="My Personal Account"
+            >
+              {currentUser && <img src={currentUser.avatarUrl} className="w-full h-full rounded-full object-cover" />}
+            </button>
           </>
         ) : (
           <>
             <NavIcon active={activeTab === 'DASHBOARD'} onClick={() => { setActiveTab('DASHBOARD'); setSelectedAssignmentId(null); setTeacherSelectedStudentId(null); }} icon={CheckCircle} label="Students" />
             <NavIcon active={activeTab === 'COMMUNITY'} onClick={() => { setActiveTab('COMMUNITY'); setViewingStudentId(null); }} icon={GraduationCap} label="Community" />
+            <button 
+                onClick={() => { setActiveTab('PROFILE'); setViewingStudentId(null); }}
+                className={`w-10 h-10 flex items-center justify-center rounded-full transition-all border-2 mb-3 ${activeTab === 'PROFILE' ? 'border-[#c7023a] p-0.5' : 'border-transparent hover:border-zinc-700'}`}
+                title="My Personal Account"
+            >
+              {currentUser && <img src={currentUser.avatarUrl} className="w-full h-full rounded-full object-cover" />}
+            </button>
           </>
         )}
       </div>
 
       <div className="mt-auto space-y-4 w-full px-2 flex flex-col items-center">
-        <button 
-            onClick={() => { setActiveTab('PROFILE'); setViewingStudentId(null); }}
-            className={`w-10 h-10 flex items-center justify-center rounded-full transition-all border-2 ${activeTab === 'PROFILE' ? 'border-[#c7023a] p-0.5' : 'border-transparent hover:border-zinc-700'}`}
-            title="My Personal Account"
-        >
-          {currentUser && <img src={currentUser.avatarUrl} className="w-full h-full rounded-full object-cover" />}
-        </button>
         <button onClick={handleLogout} className="w-10 h-10 flex items-center justify-center text-zinc-600 hover:text-red-500 hover:bg-zinc-900 rounded-xl transition-colors" title="Logout">
           <LogOut size={18} />
         </button>
@@ -936,16 +971,13 @@ function App() {
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-black text-white flex flex-col relative overflow-hidden font-sans">
-        {/* BACKGROUND ANIMATION - SPLINE/RAYCAST VIBE */}
+        {/* Login Page preserved as is */}
         <div className="absolute inset-0 bg-black z-0">
-             {/* Breathing Red Aurora */}
              <div className="absolute top-[-20%] left-[20%] w-[500px] h-[500px] bg-[#c7023a] rounded-full blur-[180px] opacity-20 animate-pulse"></div>
              <div className="absolute bottom-[-20%] right-[10%] w-[600px] h-[600px] bg-blue-900 rounded-full blur-[200px] opacity-10"></div>
-             {/* Mesh Pattern Overlay */}
              <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-150 contrast-150"></div>
         </div>
         
-        {/* HEADER: LOGO LEFT */}
         <div className="absolute top-0 left-0 w-full p-8 z-50 flex items-center justify-between">
              <div className="flex items-center gap-4">
                  <div className="w-10 h-10 bg-[#c7023a] flex items-center justify-center rounded-lg shadow-[0_0_20px_rgba(199,2,58,0.5)]">
@@ -956,17 +988,10 @@ function App() {
              <div className="text-xs font-bold text-zinc-600 tracking-widest uppercase hidden md:block">Visualization Portal</div>
         </div>
 
-        {/* MAIN CONTENT SPLIT */}
         <div className="z-10 flex-1 flex items-center justify-center relative w-full h-full">
-             
-             {/* GLASS CARD */}
              <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-0 bg-[#0a0a0a]/60 backdrop-blur-xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
-                 
-                 {/* LEFT: TEXT & BRANDING */}
                  <div className="p-12 flex flex-col justify-center border-r border-white/5 relative overflow-hidden">
-                     {/* Subtle Glow behind text */}
                      <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>
-
                      <div className="relative z-10">
                         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold tracking-widest text-[#c7023a] mb-6 w-fit">
                             <Sparkles size={10} /> NEW SEMESTER OPEN
@@ -977,54 +1002,27 @@ function App() {
                         <p className="text-zinc-400 text-lg leading-relaxed max-w-sm">
                             Where geometry meets emotion. The ultimate ecosystem for architectural visualization mastery.
                         </p>
-
-                        <div className="mt-12 flex items-center gap-4 text-xs font-bold text-zinc-600 uppercase tracking-widest">
-                            <span className="flex items-center gap-2"><CheckCircle size={14} className="text-[#c7023a]" /> Real-time Review</span>
-                            <span className="flex items-center gap-2"><CheckCircle size={14} className="text-[#c7023a]" /> Pro Tools</span>
-                        </div>
                      </div>
                  </div>
 
-                 {/* RIGHT: LOGIN FORM */}
                  <div className="p-12 flex flex-col justify-center bg-black/40">
                       <form onSubmit={handleLoginSubmit} className="space-y-6 max-w-sm mx-auto w-full">
                           <div className="text-center mb-8">
                               <h2 className="text-xl font-bold text-white tracking-tight">Access Portal</h2>
                               <p className="text-zinc-500 text-sm mt-1">Enter your credentials to continue</p>
                           </div>
-
                           <div className="space-y-4">
                               <div>
                                   <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Email</label>
-                                  <input 
-                                      type="email" 
-                                      value={loginEmail}
-                                      onChange={(e) => setLoginEmail(e.target.value)}
-                                      className="w-full bg-[#050505] border border-zinc-800 rounded-lg p-3 text-white text-sm outline-none focus:border-[#c7023a] focus:bg-zinc-900 transition-all placeholder:text-zinc-700"
-                                      placeholder="student@rta.edu"
-                                  />
+                                  <input type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} className="w-full bg-[#050505] border border-zinc-800 rounded-lg p-3 text-white text-sm outline-none focus:border-[#c7023a] focus:bg-zinc-900 transition-all placeholder:text-zinc-700" placeholder="student@rta.edu"/>
                               </div>
                               <div>
                                   <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Password</label>
-                                  <input 
-                                      type="password" 
-                                      value={loginPassword}
-                                      onChange={(e) => setLoginPassword(e.target.value)}
-                                      className="w-full bg-[#050505] border border-zinc-800 rounded-lg p-3 text-white text-sm outline-none focus:border-[#c7023a] focus:bg-zinc-900 transition-all placeholder:text-zinc-700"
-                                      placeholder="••••••••"
-                                  />
+                                  <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} className="w-full bg-[#050505] border border-zinc-800 rounded-lg p-3 text-white text-sm outline-none focus:border-[#c7023a] focus:bg-zinc-900 transition-all placeholder:text-zinc-700" placeholder="••••••••"/>
                               </div>
                           </div>
-                          
-                          {loginError && (
-                              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs flex items-center gap-2 font-medium">
-                                  <AlertCircle size={14} /> {loginError}
-                              </div>
-                          )}
-
-                          <button type="submit" className="w-full py-3.5 bg-white hover:bg-zinc-200 text-black font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 text-sm tracking-wide mt-2">
-                              Sign In <ArrowRight size={16} />
-                          </button>
+                          {loginError && (<div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs flex items-center gap-2 font-medium"><AlertCircle size={14} /> {loginError}</div>)}
+                          <button type="submit" className="w-full py-3.5 bg-white hover:bg-zinc-200 text-black font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 text-sm tracking-wide mt-2">Sign In <ArrowRight size={16} /></button>
                       </form>
                  </div>
              </div>
@@ -1033,16 +1031,13 @@ function App() {
     );
   }
 
-  // --- ONBOARDING: REFERENCE SETUP ---
-  if (isOnboarding && currentUser) {
+  // --- ONBOARDING OR EDITING REFS ---
+  if ((isOnboarding || isEditingRefs) && currentUser) {
       const classInfo = getClassDisplayInfo(currentUser.classType);
 
       return (
           <div className="min-h-screen bg-[#050505] text-white flex flex-col items-center justify-center p-8 relative font-sans">
-               {/* Background Glows */}
                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#c7023a] to-transparent opacity-50"></div>
-               
-               {/* HEADER */}
                <div className="absolute top-8 left-8 flex items-center gap-6">
                    <div className="w-10 h-10 bg-[#c7023a] flex items-center justify-center rounded-lg shadow-lg shadow-red-900/30">
                         <span className="text-white font-black text-xs tracking-tighter">RTA</span>
@@ -1052,27 +1047,21 @@ function App() {
                         <p className="text-[10px] font-bold text-[#c7023a] tracking-[0.2em] uppercase">{classInfo.subtitle}</p>
                     </div>
                </div>
-
-              <button 
-                onClick={handleLogout}
-                className="absolute top-8 right-8 flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-xs font-bold border border-zinc-800 px-4 py-2 rounded-lg"
-              >
-                <LogOut size={14} /> LOGOUT
+              <button onClick={() => isEditingRefs ? setIsEditingRefs(false) : handleLogout()} className="absolute top-8 right-8 flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-xs font-bold border border-zinc-800 px-4 py-2 rounded-lg">
+                {isEditingRefs ? <X size={14} /> : <LogOut size={14} />} {isEditingRefs ? 'CANCEL' : 'LOGOUT'}
               </button>
 
               <div className="max-w-5xl w-full">
                   <div className="text-center mb-16">
                       <div className="inline-block px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-white text-[10px] font-bold tracking-[0.2em] uppercase mb-6 backdrop-blur-sm">System Initialization</div>
                       <h2 className="text-5xl md:text-6xl font-black mb-6 tracking-tighter">Upload Master References</h2>
-                      <p className="text-zinc-500 text-lg max-w-2xl mx-auto">These master files will serve as the ground truth for all future assignment comparisons. Choose wisely.</p>
+                      <p className="text-zinc-500 text-lg max-w-2xl mx-auto">These master files will serve as the ground truth for all future assignment comparisons.</p>
                   </div>
-
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
-                      {/* Interior Card */}
                       <label className={`aspect-video rounded-3xl border border-white/5 bg-zinc-900/30 flex flex-col items-center justify-center relative overflow-hidden group transition-all cursor-pointer backdrop-blur-sm ${newInteriorRef ? 'border-[#c7023a]/50 shadow-[0_0_30px_rgba(199,2,58,0.1)]' : 'hover:border-white/20 hover:bg-zinc-900/50'}`}>
-                          {newInteriorRef ? (
+                          {(newInteriorRef || currentUser.interiorRefUrl) ? (
                               <>
-                                <img src={newInteriorRef} className="absolute inset-0 w-full h-full object-cover" />
+                                <img src={newInteriorRef || currentUser.interiorRefUrl} className="absolute inset-0 w-full h-full object-cover" />
                                 <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors pointer-events-none" />
                                 <div className="absolute bottom-6 left-6 pointer-events-none">
                                     <div className="flex items-center gap-3 text-white font-bold tracking-tight">
@@ -1080,12 +1069,6 @@ function App() {
                                         INTERIOR MASTER
                                     </div>
                                 </div>
-                                <button 
-                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNewInteriorRef(null); }}
-                                    className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-[#c7023a] text-white rounded-full backdrop-blur transition-all z-20 opacity-0 group-hover:opacity-100 border border-white/10"
-                                >
-                                    <X size={20} />
-                                </button>
                               </>
                           ) : (
                               <div className="text-center p-4 relative z-10 pointer-events-none flex flex-col items-center">
@@ -1093,17 +1076,15 @@ function App() {
                                      <Upload className="text-zinc-600 group-hover:text-white transition-colors" size={24} />
                                   </div>
                                   <span className="text-sm font-bold text-white tracking-wide block">Upload Interior Reference</span>
-                                  <span className="text-xs text-zinc-500 mt-2">1920x1080 or higher recommended</span>
                               </div>
                           )}
                           <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, setNewInteriorRef, 'references')} />
                       </label>
 
-                      {/* Exterior Card */}
                       <label className={`aspect-video rounded-3xl border border-white/5 bg-zinc-900/30 flex flex-col items-center justify-center relative overflow-hidden group transition-all cursor-pointer backdrop-blur-sm ${newExteriorRef ? 'border-[#c7023a]/50 shadow-[0_0_30px_rgba(199,2,58,0.1)]' : 'hover:border-white/20 hover:bg-zinc-900/50'}`}>
-                          {newExteriorRef ? (
+                          {(newExteriorRef || currentUser.exteriorRefUrl) ? (
                               <>
-                                <img src={newExteriorRef} className="absolute inset-0 w-full h-full object-cover" />
+                                <img src={newExteriorRef || currentUser.exteriorRefUrl} className="absolute inset-0 w-full h-full object-cover" />
                                 <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors pointer-events-none" />
                                 <div className="absolute bottom-6 left-6 pointer-events-none">
                                     <div className="flex items-center gap-3 text-white font-bold tracking-tight">
@@ -1111,12 +1092,6 @@ function App() {
                                         EXTERIOR MASTER
                                     </div>
                                 </div>
-                                <button 
-                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNewExteriorRef(null); }}
-                                    className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-[#c7023a] text-white rounded-full backdrop-blur transition-all z-20 opacity-0 group-hover:opacity-100 border border-white/10"
-                                >
-                                    <X size={20} />
-                                </button>
                               </>
                           ) : (
                               <div className="text-center p-4 relative z-10 pointer-events-none flex flex-col items-center">
@@ -1124,16 +1099,14 @@ function App() {
                                      <Upload className="text-zinc-600 group-hover:text-white transition-colors" size={24} />
                                   </div>
                                   <span className="text-sm font-bold text-white tracking-wide block">Upload Exterior Reference</span>
-                                  <span className="text-xs text-zinc-500 mt-2">1920x1080 or higher recommended</span>
                               </div>
                           )}
                           <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, setNewExteriorRef, 'references')} />
                       </label>
                   </div>
-
                   <div className="flex justify-center">
-                    <button disabled={!newInteriorRef || !newExteriorRef} onClick={handleSaveProfileRefs} className="px-12 py-4 bg-white hover:bg-zinc-200 text-black disabled:bg-zinc-900 disabled:text-zinc-700 disabled:border-zinc-800 font-bold rounded-xl transition-all flex items-center gap-3 tracking-widest uppercase text-sm shadow-xl hover:shadow-2xl hover:-translate-y-1">
-                        Confirm Project Setup
+                    <button onClick={handleSaveProfileRefs} className="px-12 py-4 bg-white hover:bg-zinc-200 text-black font-bold rounded-xl transition-all flex items-center gap-3 tracking-widest uppercase text-sm shadow-xl hover:shadow-2xl hover:-translate-y-1">
+                        Confirm Updates
                     </button>
                   </div>
               </div>
@@ -1188,6 +1161,7 @@ function App() {
                  </div>
 
                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                    {/* FIXED: Filter Logic covers both Interior and Exterior now, simply checking Class Type */}
                     {getCommunityGroupedAssignments(assignments.filter(a => {
                         const student = allUsers.find(u => u.id === a.studentId);
                         if (!student || student.role !== 'STUDENT') return false;
@@ -1218,14 +1192,27 @@ function App() {
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-80" />
                                     <div className="absolute bottom-4 left-4 right-4">
                                         <div className="text-white font-bold text-sm leading-tight mb-1 tracking-wide">{getAssignmentDisplayName(latest.category)}</div>
-                                        <div className="text-[10px] text-zinc-400 font-bold flex items-center gap-2">
-                                            <img src={student?.avatarUrl} className="w-4 h-4 rounded-full" />
+                                        {/* ADDED: Student Name Visible on Card */}
+                                        <div className="text-[10px] text-zinc-300 font-bold flex items-center gap-2">
+                                            <img src={student?.avatarUrl} className="w-5 h-5 rounded-full border border-white/20" />
                                             {student?.name}
                                         </div>
                                     </div>
                                     <div className="absolute top-3 right-3">
                                         <StatusBadge status={latest.status} />
                                     </div>
+
+                                    {/* TEACHER DIRECT GRADING ON CARD */}
+                                    {currentUser.role === 'TEACHER' && latest.status === 'PENDING' && (
+                                        <div className="absolute top-3 left-3 flex gap-2" onClick={(e) => e.stopPropagation()}>
+                                            <button onClick={() => handleTeacherAction(latest.id, 'APPROVE')} className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center hover:scale-110 transition-transform shadow-lg" title="Quick Approve">
+                                                <CheckCircle size={14} className="text-black" />
+                                            </button>
+                                            <button onClick={() => handleTeacherAction(latest.id, 'REJECT')} className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center hover:scale-110 transition-transform shadow-lg" title="Quick Reject">
+                                                <X size={14} className="text-black" />
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         );
@@ -1240,6 +1227,7 @@ function App() {
                       const currentVersion = studentViewAssignmentGroup[viewingVersionIndex];
                       if (!currentVersion) return null;
 
+                      const student = allUsers.find(u => u.id === currentVersion.studentId);
                       const isLatest = viewingVersionIndex === studentViewAssignmentGroup.length - 1;
                       const studentIsOwner = currentUser.id === currentVersion.studentId;
                       const progress = getProjectProgress(currentVersion.studentId, currentVersion.referenceImage === currentUser.interiorRefUrl ? 'INTERIOR' : 'EXTERIOR');
@@ -1247,21 +1235,67 @@ function App() {
                       const isLocked = stepInfo?.status === 'LOCKED';
                       const canSubmitNewVersion = studentIsOwner && isLatest && !isLocked;
 
+                      // Navigation Logic
+                      const filteredCommunity = getCommunityGroupedAssignments(assignments.filter(a => {
+                            const s = allUsers.find(u => u.id === a.studentId);
+                            if (!s || s.role !== 'STUDENT') return false;
+                            if (communityTab === 'MASTER' && s.classType !== 'MASTER_CLASS') return false;
+                            if (communityTab === 'VIZ' && s.classType !== 'VIZ_CLASS') return false;
+                            return true;
+                      }));
+                      
+                      const currentGroupIdx = filteredCommunity.findIndex(g => 
+                          g.length > 0 && 
+                          g[0].studentId === currentVersion.studentId && 
+                          g[0].category === currentVersion.category && 
+                          g[0].referenceImage === currentVersion.referenceImage
+                      );
+
+                      const hasPrev = currentGroupIdx > 0;
+                      const hasNext = currentGroupIdx < filteredCommunity.length - 1;
+
+                      const navigateGroup = (dir: 'prev' | 'next') => {
+                          const newGroup = dir === 'prev' ? filteredCommunity[currentGroupIdx - 1] : filteredCommunity[currentGroupIdx + 1];
+                          const latest = newGroup[newGroup.length - 1];
+                          setViewingGroupParams({
+                              studentId: latest.studentId,
+                              category: latest.category,
+                              referenceImage: latest.referenceImage
+                          });
+                          setViewingVersionIndex(newGroup.length - 1);
+                      };
+
                       return (
                         <div className="w-full h-full max-w-[1800px] bg-[#050505] border border-white/10 rounded-3xl flex flex-col overflow-hidden shadow-2xl relative">
                              <button onClick={() => { setViewingGroupParams(null); if(currentUser.role === 'TEACHER') setSelectedAssignmentId(null); }} className="absolute top-6 right-6 z-50 p-3 bg-black/50 hover:bg-[#c7023a] text-white rounded-full backdrop-blur-md transition-all border border-white/10 group">
                                  <X size={24} className="group-hover:scale-110 transition-transform" />
                              </button>
 
+                             {/* NAVIGATION ARROWS IN MODAL */}
+                             {hasPrev && (
+                                 <button onClick={() => navigateGroup('prev')} className="absolute left-4 top-1/2 -translate-y-1/2 z-50 p-3 bg-black/50 hover:bg-white hover:text-black text-white rounded-full backdrop-blur border border-white/10 transition-all">
+                                     <ChevronLeft size={24} />
+                                 </button>
+                             )}
+                             {hasNext && (
+                                 <button onClick={() => navigateGroup('next')} className="absolute right-4 top-1/2 -translate-y-1/2 z-50 p-3 bg-black/50 hover:bg-white hover:text-black text-white rounded-full backdrop-blur border border-white/10 transition-all">
+                                     <ChevronRight size={24} />
+                                 </button>
+                             )}
+
                              <div className="h-20 border-b border-white/5 flex items-center px-8 bg-black/40 backdrop-blur-xl">
                                  <div>
-                                     <h2 className="text-2xl font-bold text-white tracking-tight">{getAssignmentDisplayName(currentVersion.category)}</h2>
+                                     <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3">
+                                        {getAssignmentDisplayName(currentVersion.category)}
+                                        {/* ADDED: Student Name in Modal Header */}
+                                        <span className="text-zinc-500 text-lg font-medium flex items-center gap-2">
+                                            by <img src={student?.avatarUrl} className="w-6 h-6 rounded-full" /> {student?.name}
+                                        </span>
+                                     </h2>
                                      <div className="flex items-center gap-3 text-xs text-zinc-500 mt-1">
                                          <span className="font-bold text-[#c7023a] uppercase tracking-wider">Assignment {currentVersion.week.toString().padStart(2, '0')}</span>
                                          <span className="w-1 h-1 rounded-full bg-zinc-700"></span>
                                          <span>Version {viewingVersionIndex + 1} of {studentViewAssignmentGroup.length}</span>
-                                         <span className="w-1 h-1 rounded-full bg-zinc-700"></span>
-                                         <span className="font-mono text-zinc-400">{new Date(currentVersion.submissionDate).toLocaleDateString()}</span>
                                      </div>
                                  </div>
                                  <div className="ml-8">
@@ -1298,10 +1332,10 @@ function App() {
                                  </div>
 
                                  <div className="w-96 border-l border-white/5 bg-[#050505] flex flex-col">
-                                     {currentUser.role === 'TEACHER' && selectedAssignmentId ? (
+                                     {currentUser.role === 'TEACHER' && (selectedAssignmentId || currentVersion.status === 'PENDING') ? (
                                         <div className="flex flex-col h-full p-6">
                                             <div className="mb-6">
-                                                <h3 className="font-bold text-white text-lg">{allUsers.find(u=>u.id===currentVersion.studentId)?.name}</h3>
+                                                <h3 className="font-bold text-white text-lg">{student?.name}</h3>
                                                 <div className="bg-zinc-900/50 p-4 rounded-xl border border-white/5 mt-4">
                                                     <div className="text-[10px] font-bold text-zinc-500 uppercase mb-2 tracking-wider">Student Note</div>
                                                     <p className="text-sm text-zinc-300 italic leading-relaxed">"{currentVersion.studentMessage}"</p>
@@ -1325,6 +1359,9 @@ function App() {
                                                             <button onClick={() => handleTeacherAction(currentVersion.id, 'APPROVE')} className="py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg transition-all">Approve</button>
                                                             <button onClick={() => handleTeacherAction(currentVersion.id, 'REJECT')} className="py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl shadow-lg transition-all">Reject</button>
                                                         </div>
+                                                        <div className="text-xs text-zinc-500 text-center mt-2">
+                                                            *Approving will automatically unlock the next stage.
+                                                        </div>
                                                     </div>
                                                 </>
                                             ) : (
@@ -1335,12 +1372,6 @@ function App() {
                                                     <h3 className={`text-xl font-bold mb-2 ${currentVersion.status === 'APPROVED' ? 'text-emerald-500' : 'text-red-500'}`}>
                                                         ALREADY {currentVersion.status}
                                                     </h3>
-                                                    {currentVersion.feedback && currentVersion.feedback.length > 0 && (
-                                                        <div className="w-full bg-zinc-900/50 p-4 rounded-xl border border-white/5 mt-4">
-                                                            <div className="text-[10px] font-bold text-zinc-500 uppercase mb-2 tracking-wider">Feedback Given</div>
-                                                            <p className="text-sm text-zinc-300">"{currentVersion.feedback[currentVersion.feedback.length - 1].message}"</p>
-                                                        </div>
-                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -1378,7 +1409,7 @@ function App() {
                                                                 onClick={() => {
                                                                     const project = currentVersion.referenceImage === currentUser.interiorRefUrl ? 'INTERIOR' : 'EXTERIOR';
                                                                     handleProjectSelectForSubmit(project);
-                                                                    setDetectedStep(currentVersion.category); // Force this specific step
+                                                                    setDetectedStep(currentVersion.category);
                                                                     setActiveTab('SUBMIT');
                                                                     setSubmitStep('UPLOAD_RENDER');
                                                                 }}
@@ -1395,18 +1426,9 @@ function App() {
                                                                     <span className="text-xs uppercase tracking-widest mt-2">Stage Locked</span>
                                                                 </div>
                                                             ) : (
-                                                                <>
-                                                                    {currentVersion.status === 'PENDING' && (
-                                                                        <div className="text-yellow-600 font-bold flex flex-col items-center gap-2">
-                                                                            <div className="p-3 bg-yellow-900/20 rounded-full border border-yellow-700/30"><Clock size={24} /></div>
-                                                                            <span className="text-xs uppercase tracking-widest mt-2">Awaiting Review...</span>
-                                                                        </div>
-                                                                    )}
-                                                                </>
-                                                            )}
-                                                            {!isLatest && (
-                                                                <div className="text-zinc-500 text-xs mt-4 border-t border-white/5 pt-4">
-                                                                    You are viewing an older version of this assignment.
+                                                                <div className="text-yellow-600 font-bold flex flex-col items-center gap-2">
+                                                                    <div className="p-3 bg-yellow-900/20 rounded-full border border-yellow-700/30"><Clock size={24} /></div>
+                                                                    <span className="text-xs uppercase tracking-widest mt-2">Awaiting Review...</span>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -1479,24 +1501,30 @@ function App() {
                             <div className="w-96 h-64 border-2 border-dashed border-zinc-700 rounded-2xl flex flex-col items-center justify-center bg-zinc-900/30 hover:bg-zinc-800/50 hover:border-zinc-500 transition-all">
                                 <Upload size={48} className="text-zinc-600 group-hover:text-white mb-4 transition-colors" />
                                 <span className="font-bold text-lg text-zinc-300">Click to Browse</span>
-                                <span className="text-xs text-zinc-600 mt-2">JPG, PNG supported</span>
+                                <span className="text-xs text-zinc-600 mt-2">Select one or more images</span>
                             </div>
-                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, setUploadRender, 'renders', () => setSubmitStep('VERIFY'))} />
+                            {/* ADDED: Multiple attribute for multi-upload */}
+                            <input type="file" className="hidden" accept="image/*" multiple onChange={(e) => handleFileUpload(e, setUploadRenders, 'renders', () => setSubmitStep('VERIFY'))} />
                        </label>
                     </div>
                   )}
 
-                  {submitStep === 'VERIFY' && uploadRender && (
+                  {submitStep === 'VERIFY' && uploadRenders.length > 0 && (
                     <div className="flex h-full w-full">
                        <div className="flex-1 bg-black relative">
                           <ComparisonViewer 
                             refImage={selectedProjectForSubmit === 'INTERIOR' ? currentUser.interiorRefUrl! : currentUser.exteriorRefUrl!}
-                            renderImage={uploadRender}
+                            renderImage={uploadRenders[uploadRenders.length - 1]} // Show the last uploaded image as preview
                             mode={compMode}
                             setMode={setCompMode}
                             fullViewSource={fullViewSource}
                             onFullViewToggle={() => setFullViewSource(prev => prev === 'REF' ? 'RENDER' : 'REF')}
                           />
+                          {uploadRenders.length > 1 && (
+                              <div className="absolute bottom-4 left-4 bg-black/60 px-4 py-2 rounded-lg text-xs font-bold text-white border border-white/10 backdrop-blur">
+                                  + {uploadRenders.length - 1} other files selected
+                              </div>
+                          )}
                        </div>
 
                        <div className="w-96 bg-[#0a0a0a] border-l border-white/5 flex flex-col p-8 z-10 shadow-2xl">
@@ -1517,10 +1545,10 @@ function App() {
 
                           <div className="mt-auto space-y-4 pt-8 border-t border-white/5">
                               <button onClick={handleSubmitAssignment} className="w-full bg-[#c7023a] hover:bg-red-700 text-white py-4 rounded-xl font-bold shadow-lg shadow-red-900/20 flex items-center justify-center gap-2 transition-all hover:-translate-y-1">
-                                  {isResubmission ? 'Resubmit Fix' : 'Confirm Submission'} <ArrowRight size={18} />
+                                  {isResubmission ? 'Resubmit Fix' : `Submit ${uploadRenders.length} File${uploadRenders.length > 1 ? 's' : ''}`} <ArrowRight size={18} />
                               </button>
                               <button onClick={() => setSubmitStep('UPLOAD_RENDER')} className="w-full py-2 rounded-lg font-bold text-zinc-500 hover:text-white text-xs tracking-wide">
-                                  SELECT DIFFERENT IMAGE
+                                  SELECT DIFFERENT IMAGES
                               </button>
                           </div>
                        </div>
