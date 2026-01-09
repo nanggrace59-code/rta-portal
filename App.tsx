@@ -227,12 +227,45 @@ function App() {
     }
   }, [currentUser]);
 
+  // UPDATED: Onboarding & Auto-Unlock Check (Robust Self-Healing)
   useEffect(() => {
      if (currentUser && currentUser.role === 'STUDENT') {
-         if (!currentUser.interiorRefUrl || !currentUser.exteriorRefUrl) {
+         // 1. Onboarding Check
+         const hasRefs = currentUser.interiorRefUrl && currentUser.exteriorRefUrl;
+         if (!hasRefs) {
              setIsOnboarding(true);
          } else {
              setIsOnboarding(false);
+             
+             // 2. Auto-Unlock Logic (Self-Healing for existing users)
+             const firstStep = currentUser.classType === 'MASTER_CLASS' ? 'BOX_MODELING' : 'COLOR_RENDERING';
+             const currentProgress = currentUser.progress || { INTERIOR: [], EXTERIOR: [] };
+             let changed = false;
+             
+             // Ensure arrays exist
+             const newInterior = [...(currentProgress.INTERIOR || [])];
+             const newExterior = [...(currentProgress.EXTERIOR || [])];
+
+             if (!newInterior.includes(firstStep)) {
+                 newInterior.push(firstStep);
+                 changed = true;
+             }
+             if (!newExterior.includes(firstStep)) {
+                 newExterior.push(firstStep);
+                 changed = true;
+             }
+
+             if (changed) {
+                 const newProgress = { INTERIOR: newInterior, EXTERIOR: newExterior };
+                 
+                 // Optimistic Update to reflect immediately
+                 setCurrentUser(prev => prev ? ({ ...prev, progress: newProgress }) : null);
+                 
+                 // Silent DB Update
+                 supabase.from('profiles').update({ progress: newProgress }).eq('id', currentUser.id).then(({ error }) => {
+                     if(error) console.error("Auto-unlock error:", error);
+                 });
+             }
          }
      }
   }, [currentUser]);
