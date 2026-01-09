@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   LogOut, 
   Upload, 
@@ -137,6 +137,94 @@ function App() {
     a.referenceImage === (selectedProjectForSubmit === 'INTERIOR' ? currentUser.interiorRefUrl : currentUser.exteriorRefUrl)
   ) : false;
 
+  // --- NAVIGATION HELPERS ---
+  const filteredCommunityGroups = useMemo(() => {
+      return getCommunityGroupedAssignments(assignments.filter(a => {
+          const student = allUsers.find(u => u.id === a.studentId);
+          if (!student || student.role !== 'STUDENT') return false;
+          
+          if (communityTab === 'MASTER' && student.classType !== 'MASTER_CLASS') return false;
+          if (communityTab === 'VIZ' && student.classType !== 'VIZ_CLASS') return false;
+          
+          return true;
+      }));
+  }, [assignments, allUsers, communityTab]);
+
+  const currentGroupIdx = useMemo(() => {
+      if (!studentViewAssignmentGroup || studentViewAssignmentGroup.length === 0) return -1;
+      const current = studentViewAssignmentGroup[0];
+      
+      return filteredCommunityGroups.findIndex(g => 
+          g.length > 0 && 
+          g[0].studentId === current.studentId && 
+          g[0].category === current.category && 
+          g[0].referenceImage === current.referenceImage
+      );
+  }, [studentViewAssignmentGroup, filteredCommunityGroups]);
+
+  const navigateGroup = useCallback((dir: 'prev' | 'next') => {
+      if (currentGroupIdx === -1) return;
+      const newIdx = dir === 'prev' ? currentGroupIdx - 1 : currentGroupIdx + 1;
+      
+      if (newIdx >= 0 && newIdx < filteredCommunityGroups.length) {
+          const newGroup = filteredCommunityGroups[newIdx];
+          const latest = newGroup[newGroup.length - 1];
+          setViewingGroupParams({
+              studentId: latest.studentId,
+              category: latest.category,
+              referenceImage: latest.referenceImage
+          });
+          setViewingVersionIndex(newGroup.length - 1);
+          if(currentUser?.role === 'TEACHER') setSelectedAssignmentId(null);
+      }
+  }, [currentGroupIdx, filteredCommunityGroups, currentUser]);
+
+
+  // --- EFFECTS ---
+  
+  // KEYBOARD NAVIGATION
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (!viewingGroupParams) return; // Only if modal is open
+
+        if (e.key === 'ArrowLeft') {
+            navigateGroup('prev');
+        } else if (e.key === 'ArrowRight') {
+            navigateGroup('next');
+        } else if (e.key === 'Escape') {
+             setViewingGroupParams(null);
+             if(currentUser?.role === 'TEACHER') setSelectedAssignmentId(null);
+        }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [viewingGroupParams, navigateGroup, currentUser]);
+
+  // FIX: Black Screen Issue & Default Tab
+  // Automatically switch to SUBMIT tab if student logs in
+  useEffect(() => {
+    if (currentUser?.role === 'STUDENT') {
+       if (activeTab === 'DASHBOARD') {
+           setActiveTab('SUBMIT');
+       }
+       if (currentUser.classType === 'VIZ_CLASS') {
+           setCommunityTab('VIZ');
+       } else {
+           setCommunityTab('MASTER');
+       }
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+     if (currentUser && currentUser.role === 'STUDENT') {
+         if (!currentUser.interiorRefUrl || !currentUser.exteriorRefUrl) {
+             setIsOnboarding(true);
+         } else {
+             setIsOnboarding(false);
+         }
+     }
+  }, [currentUser]);
 
   // --- SUPABASE INITIALIZATION & FETCHING ---
 
@@ -244,33 +332,6 @@ function App() {
   };
 
 
-  // --- EFFECTS ---
-  
-  // FIX: Black Screen Issue & Default Tab
-  // Automatically switch to SUBMIT tab if student logs in
-  useEffect(() => {
-    if (currentUser?.role === 'STUDENT') {
-       if (activeTab === 'DASHBOARD') {
-           setActiveTab('SUBMIT');
-       }
-       if (currentUser.classType === 'VIZ_CLASS') {
-           setCommunityTab('VIZ');
-       } else {
-           setCommunityTab('MASTER');
-       }
-    }
-  }, [currentUser]);
-
-  useEffect(() => {
-     if (currentUser && currentUser.role === 'STUDENT') {
-         if (!currentUser.interiorRefUrl || !currentUser.exteriorRefUrl) {
-             setIsOnboarding(true);
-         } else {
-             setIsOnboarding(false);
-         }
-     }
-  }, [currentUser]);
-
   // --- Helpers ---
   const getClassDisplayInfo = (type?: string) => {
     if (type === 'MASTER_CLASS') return { title: 'MASTER CLASS', subtitle: 'Architecture Modeling' };
@@ -337,7 +398,7 @@ function App() {
   };
 
   // UPDATED: Sort by Newest First (b - a)
-  const getCommunityGroupedAssignments = (filteredAssignments: Assignment[]) => {
+  function getCommunityGroupedAssignments(filteredAssignments: Assignment[]) {
       const grouped: Record<string, Assignment[]> = {};
       filteredAssignments.forEach(a => {
           const key = `${a.studentId}-${a.category}-${a.referenceImage}`;
@@ -1235,53 +1296,14 @@ function App() {
                       const isLocked = stepInfo?.status === 'LOCKED';
                       const canSubmitNewVersion = studentIsOwner && isLatest && !isLocked;
 
-                      // Navigation Logic
-                      const filteredCommunity = getCommunityGroupedAssignments(assignments.filter(a => {
-                            const s = allUsers.find(u => u.id === a.studentId);
-                            if (!s || s.role !== 'STUDENT') return false;
-                            if (communityTab === 'MASTER' && s.classType !== 'MASTER_CLASS') return false;
-                            if (communityTab === 'VIZ' && s.classType !== 'VIZ_CLASS') return false;
-                            return true;
-                      }));
-                      
-                      const currentGroupIdx = filteredCommunity.findIndex(g => 
-                          g.length > 0 && 
-                          g[0].studentId === currentVersion.studentId && 
-                          g[0].category === currentVersion.category && 
-                          g[0].referenceImage === currentVersion.referenceImage
-                      );
-
                       const hasPrev = currentGroupIdx > 0;
-                      const hasNext = currentGroupIdx < filteredCommunity.length - 1;
-
-                      const navigateGroup = (dir: 'prev' | 'next') => {
-                          const newGroup = dir === 'prev' ? filteredCommunity[currentGroupIdx - 1] : filteredCommunity[currentGroupIdx + 1];
-                          const latest = newGroup[newGroup.length - 1];
-                          setViewingGroupParams({
-                              studentId: latest.studentId,
-                              category: latest.category,
-                              referenceImage: latest.referenceImage
-                          });
-                          setViewingVersionIndex(newGroup.length - 1);
-                      };
+                      const hasNext = currentGroupIdx < filteredCommunityGroups.length - 1;
 
                       return (
                         <div className="w-full h-full max-w-[1800px] bg-[#050505] border border-white/10 rounded-3xl flex flex-col overflow-hidden shadow-2xl relative">
                              <button onClick={() => { setViewingGroupParams(null); if(currentUser.role === 'TEACHER') setSelectedAssignmentId(null); }} className="absolute top-6 right-6 z-50 p-3 bg-black/50 hover:bg-[#c7023a] text-white rounded-full backdrop-blur-md transition-all border border-white/10 group">
                                  <X size={24} className="group-hover:scale-110 transition-transform" />
                              </button>
-
-                             {/* NAVIGATION ARROWS IN MODAL */}
-                             {hasPrev && (
-                                 <button onClick={() => navigateGroup('prev')} className="absolute left-4 top-1/2 -translate-y-1/2 z-50 p-3 bg-black/50 hover:bg-white hover:text-black text-white rounded-full backdrop-blur border border-white/10 transition-all">
-                                     <ChevronLeft size={24} />
-                                 </button>
-                             )}
-                             {hasNext && (
-                                 <button onClick={() => navigateGroup('next')} className="absolute right-4 top-1/2 -translate-y-1/2 z-50 p-3 bg-black/50 hover:bg-white hover:text-black text-white rounded-full backdrop-blur border border-white/10 transition-all">
-                                     <ChevronRight size={24} />
-                                 </button>
-                             )}
 
                              <div className="h-20 border-b border-white/5 flex items-center px-8 bg-black/40 backdrop-blur-xl">
                                  <div>
@@ -1305,7 +1327,7 @@ function App() {
 
                              <div className="flex-1 flex overflow-hidden">
                                  <div className="flex-1 bg-zinc-900/20 relative p-6 flex flex-col">
-                                     <div className="flex-1 w-full h-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-black">
+                                     <div className="flex-1 w-full h-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-black relative group/image-area">
                                         <ComparisonViewer 
                                             refImage={currentVersion.referenceImage} 
                                             renderImage={currentVersion.renderImage} 
@@ -1314,6 +1336,18 @@ function App() {
                                             fullViewSource={fullViewSource} 
                                             onFullViewToggle={() => setFullViewSource(prev => prev === 'REF' ? 'RENDER' : 'REF')} 
                                         />
+
+                                        {/* NAVIGATION ARROWS IN MODAL - MOVED INSIDE */}
+                                        {hasPrev && (
+                                            <button onClick={() => navigateGroup('prev')} className="absolute left-4 top-1/2 -translate-y-1/2 z-50 p-4 bg-black/60 hover:bg-[#c7023a] text-white rounded-full backdrop-blur border border-white/20 transition-all shadow-xl hover:scale-110 group-hover/image-area:opacity-100 opacity-0 transition-opacity duration-300">
+                                                <ChevronLeft size={32} />
+                                            </button>
+                                        )}
+                                        {hasNext && (
+                                            <button onClick={() => navigateGroup('next')} className="absolute right-4 top-1/2 -translate-y-1/2 z-50 p-4 bg-black/60 hover:bg-[#c7023a] text-white rounded-full backdrop-blur border border-white/20 transition-all shadow-xl hover:scale-110 group-hover/image-area:opacity-100 opacity-0 transition-opacity duration-300">
+                                                <ChevronRight size={32} />
+                                            </button>
+                                        )}
                                      </div>
                                      
                                      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md border border-white/10 rounded-full px-5 py-3 flex items-center gap-4 shadow-2xl">
