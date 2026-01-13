@@ -135,8 +135,8 @@ const ComparisonViewer: React.FC<ComparisonViewerProps> = ({
   const imgStyle: React.CSSProperties = {
     transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
     transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-    maxWidth: '100%',
-    maxHeight: '100%',
+    width: '100%',
+    height: '100%',
     objectFit: 'contain', 
     userSelect: 'none',
     pointerEvents: 'none', // Let events pass to container for panning
