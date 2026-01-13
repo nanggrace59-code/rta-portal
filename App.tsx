@@ -512,18 +512,39 @@ function App() {
     setTeacherSelectedStudentId(null);
   };
 
-  // STORAGE OPTIMIZATION: Modified to store local previews first
+  // STORAGE OPTIMIZATION: Modified to store local previews first AND APPEND
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const files: File[] = Array.from(e.target.files);
     
-    setUploadFiles(files);
+    // FIX 1: Append new files instead of replacing
+    setUploadFiles(prev => [...prev, ...files]);
     
-    // Create local Blob URLs for preview immediately
+    // Create local Blob URLs for preview immediately and append
     const previews = files.map(file => URL.createObjectURL(file));
-    setUploadPreviewUrls(previews);
+    setUploadPreviewUrls(prev => [...prev, ...previews]);
     
     setSubmitStep('VERIFY');
+  };
+
+  // FIX 2: Individual Delete Logic
+  const handleRemoveLastUpload = () => {
+      // Remove the LAST item (currently viewed)
+      if (uploadFiles.length === 0) return;
+      
+      const newFiles = [...uploadFiles];
+      const newPreviews = [...uploadPreviewUrls];
+      
+      newFiles.pop();
+      newPreviews.pop();
+      
+      setUploadFiles(newFiles);
+      setUploadPreviewUrls(newPreviews);
+      
+      // If no files left, go back to upload step
+      if (newFiles.length === 0) {
+          setSubmitStep('UPLOAD_RENDER');
+      }
   };
 
   const handleFileUpload = async (
@@ -1804,16 +1825,12 @@ function App() {
 
                   {submitStep === 'VERIFY' && uploadPreviewUrls.length > 0 && (
                     <div className="flex h-full w-full">
-                       <div className="flex-1 bg-black relative">
-                          {/* OVERLAY CLEAR BUTTON */}
+                       <div className="flex-1 bg-black relative group/preview-area">
+                          {/* OVERLAY CLEAR BUTTON - Corrected Logic & Positioning */}
                           <button 
-                             onClick={() => {
-                                 setUploadFiles([]);
-                                 setUploadPreviewUrls([]);
-                                 setSubmitStep('UPLOAD_RENDER');
-                             }}
-                             className="absolute top-4 right-4 z-[50] p-2 bg-black/60 hover:bg-red-500 text-white rounded-full backdrop-blur-md transition-all border border-white/20 shadow-xl group"
-                             title="Clear Selection"
+                             onClick={handleRemoveLastUpload}
+                             className="absolute top-6 right-6 z-[60] p-2 bg-black/60 hover:bg-red-500 text-white rounded-full backdrop-blur-md transition-all border border-white/20 shadow-xl opacity-0 group-hover/preview-area:opacity-100 hover:scale-110"
+                             title="Remove Current Image"
                           >
                               <X size={20} />
                           </button>
@@ -1827,7 +1844,7 @@ function App() {
                             onFullViewToggle={() => setFullViewSource(prev => prev === 'REF' ? 'RENDER' : 'REF')}
                           />
                           {uploadPreviewUrls.length > 1 && (
-                              <div className="absolute bottom-4 left-4 bg-black/60 px-4 py-2 rounded-lg text-xs font-bold text-white border border-white/10 backdrop-blur">
+                              <div className="absolute bottom-4 left-4 bg-black/60 px-4 py-2 rounded-lg text-xs font-bold text-white border border-white/10 backdrop-blur pointer-events-none">
                                   + {uploadPreviewUrls.length - 1} other files selected
                               </div>
                           )}
@@ -1854,13 +1871,13 @@ function App() {
                                   {isEditingAssignmentId ? 'Update Submission' : (isResubmission ? 'Resubmit Fix' : `Submit ${uploadPreviewUrls.length} File${uploadPreviewUrls.length > 1 ? 's' : ''}`)} <ArrowRight size={18} />
                               </button>
                               
-                              {/* REPLACED "SELECT DIFFERENT IMAGES" WITH "ADD NEW VERSION" BUTTON */}
-                              <button 
-                                onClick={() => setSubmitStep('UPLOAD_RENDER')} 
-                                className="w-full py-4 rounded-xl font-bold border-2 border-dashed border-zinc-700 hover:border-zinc-500 text-zinc-500 hover:text-white flex items-center justify-center gap-2 transition-all"
+                              {/* ADD NEW VERSION BUTTON - TRIGGERS FILE INPUT VIA LABEL */}
+                              <label 
+                                className="w-full py-4 rounded-xl font-bold border-2 border-dashed border-zinc-700 hover:border-zinc-500 text-zinc-500 hover:text-white flex items-center justify-center gap-2 transition-all cursor-pointer"
                               >
                                   <PlusCircle size={18} /> Add New Version
-                              </button>
+                                  <input type="file" className="hidden" accept="image/*" multiple onChange={handleFileSelect} />
+                              </label>
                           </div>
                        </div>
                     </div>
