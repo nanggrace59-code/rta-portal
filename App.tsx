@@ -726,8 +726,21 @@ function App() {
           const { error } = await supabase.from('assignments').delete().eq('id', assignment.id);
           if (error) throw error;
           
-          setViewingGroupParams(null); // Close modal
-          await fetchApplicationData(); // Refresh
+          // SMOOTHER DELETE: Check if we should close modal or stay
+          const remainingInGroup = assignments.filter(a => 
+            a.studentId === assignment.studentId && 
+            a.category === assignment.category && 
+            a.referenceImage === assignment.referenceImage && 
+            a.id !== assignment.id
+          );
+
+          if (remainingInGroup.length === 0) {
+              setViewingGroupParams(null); // Close modal if no versions left
+          } else {
+              setViewingVersionIndex(0); // Snap to newest available version
+          }
+
+          await fetchApplicationData(); 
       } catch (err) {
           console.error("Delete failed:", err);
           alert("Failed to delete assignment.");
@@ -1475,7 +1488,7 @@ function App() {
                       const isLocked = stepInfo?.status === 'LOCKED';
                       const canSubmitNewVersion = studentIsOwner && isLatest && !isLocked;
                       const canDelete = currentUser.role === 'TEACHER' || (studentIsOwner && currentVersion.status === 'PENDING');
-                      const canEdit = studentIsOwner && currentVersion.status === 'PENDING';
+                      const canEdit = currentUser.role === 'TEACHER' || (studentIsOwner && currentVersion.status === 'PENDING');
 
                       const hasPrev = viewingVersionIndex > 0 || currentGroupIdx > 0;
                       const hasNext = viewingVersionIndex < studentViewAssignmentGroup.length - 1 || currentGroupIdx < filteredCommunityGroups.length - 1;
@@ -1792,6 +1805,19 @@ function App() {
                   {submitStep === 'VERIFY' && uploadPreviewUrls.length > 0 && (
                     <div className="flex h-full w-full">
                        <div className="flex-1 bg-black relative">
+                          {/* OVERLAY CLEAR BUTTON */}
+                          <button 
+                             onClick={() => {
+                                 setUploadFiles([]);
+                                 setUploadPreviewUrls([]);
+                                 setSubmitStep('UPLOAD_RENDER');
+                             }}
+                             className="absolute top-4 right-4 z-[50] p-2 bg-black/60 hover:bg-red-500 text-white rounded-full backdrop-blur-md transition-all border border-white/20 shadow-xl group"
+                             title="Clear Selection"
+                          >
+                              <X size={20} />
+                          </button>
+
                           <ComparisonViewer 
                             refImage={selectedProjectForSubmit === 'INTERIOR' ? currentUser.interiorRefUrl! : currentUser.exteriorRefUrl!}
                             renderImage={uploadPreviewUrls[uploadPreviewUrls.length - 1]} // Show latest local preview
@@ -1827,8 +1853,13 @@ function App() {
                               <button onClick={handleSubmitAssignment} className="w-full bg-[#c7023a] hover:bg-red-700 text-white py-4 rounded-xl font-bold shadow-lg shadow-red-900/20 flex items-center justify-center gap-2 transition-all hover:-translate-y-1">
                                   {isEditingAssignmentId ? 'Update Submission' : (isResubmission ? 'Resubmit Fix' : `Submit ${uploadPreviewUrls.length} File${uploadPreviewUrls.length > 1 ? 's' : ''}`)} <ArrowRight size={18} />
                               </button>
-                              <button onClick={() => setSubmitStep('UPLOAD_RENDER')} className="w-full py-2 rounded-lg font-bold text-zinc-500 hover:text-white text-xs tracking-wide">
-                                  SELECT DIFFERENT IMAGES
+                              
+                              {/* REPLACED "SELECT DIFFERENT IMAGES" WITH "ADD NEW VERSION" BUTTON */}
+                              <button 
+                                onClick={() => setSubmitStep('UPLOAD_RENDER')} 
+                                className="w-full py-4 rounded-xl font-bold border-2 border-dashed border-zinc-700 hover:border-zinc-500 text-zinc-500 hover:text-white flex items-center justify-center gap-2 transition-all"
+                              >
+                                  <PlusCircle size={18} /> Add New Version
                               </button>
                           </div>
                        </div>
