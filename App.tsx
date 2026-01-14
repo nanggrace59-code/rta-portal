@@ -1382,7 +1382,7 @@ function App() {
                                   <div className="w-16 h-16 rounded-2xl bg-black border border-zinc-800 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform shadow-xl">
                                      <Upload className="text-zinc-600 group-hover:text-white transition-colors" size={24} />
                                   </div>
-                                  <span className="text-sm font-bold text-white tracking-wide block">Upload Interior Reference</span>
+                                  <span className="text-sm font-bold text-white tracking-wide block">Upload Exterior Reference</span>
                               </div>
                           )}
                           <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, setNewInteriorRef, 'references')} />
@@ -1923,6 +1923,7 @@ function App() {
 
                           {/* MAIN PREVIEW */}
                           <ComparisonViewer 
+                            key={stagingItems[previewIndex].url}
                             refImage={selectedProjectForSubmit === 'INTERIOR' ? currentUser?.interiorRefUrl! : currentUser?.exteriorRefUrl!}
                             renderImage={stagingItems[previewIndex].url}
                             mode={compMode}
@@ -2031,6 +2032,7 @@ function App() {
                               {/* MAIN PREVIEW */}
                               {stagingItems.length > 0 && (
                                   <ComparisonViewer 
+                                    key={stagingItems[previewIndex].url}
                                     refImage={selectedProjectForSubmit === 'INTERIOR' ? allUsers.find(u => u.id === assignments.find(a => a.id === isEditingAssignmentId)?.studentId)?.interiorRefUrl! : allUsers.find(u => u.id === assignments.find(a => a.id === isEditingAssignmentId)?.studentId)?.exteriorRefUrl!}
                                     renderImage={stagingItems[previewIndex].url}
                                     mode={compMode}
