@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   LogOut, 
   Upload, 
@@ -116,6 +116,10 @@ function App() {
   const [previewIndex, setPreviewIndex] = useState(0); // For Carousel
   const [previewMenuOpen, setPreviewMenuOpen] = useState(false); // For Pencil Menu
   
+  // REPLACE LOGIC FIX: State-Based Index Tracking
+  const [replacingIndex, setReplacingIndex] = useState<number | null>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+
   const [submissionMessage, setSubmissionMessage] = useState('');
   const [submitStep, setSubmitStep] = useState<'SELECT_PROJECT' | 'UPLOAD_RENDER' | 'VERIFY'>('SELECT_PROJECT');
   
@@ -546,42 +550,36 @@ function App() {
     e.target.value = '';
   };
 
-  // 2. REPLACE CURRENT FILE
-  const handleReplaceFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files || e.target.files.length === 0) return;
-      
-      const file = e.target.files[0];
-      
-      // EXPLICIT: Create new Object URL
-      const newUrl = URL.createObjectURL(file);
-      
-      // EXPLICIT: Create unique ID using file properties as requested
-      // format: replaced-filename-timestamp-index
-      const uniqueId = `replaced-${file.name}-${file.lastModified}-${Date.now()}`;
-
-      const newItem: StagingItem = {
-          id: uniqueId,
-          type: 'NEW',
-          url: newUrl,
-          file: file
-      };
-
-      setStagingItems(currentItems => {
-          // 1. Create a New Reference (Fresh Array Copy - Strict Immutability)
-          const newFiles = [...currentItems];
+  // 2. GLOBAL REPLACE HANDLER (State-Based Index Tracking)
+  const handleGlobalReplaceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      // Logic: Only proceed if we have a valid index to replace and a file
+      if (replacingIndex !== null && e.target.files && e.target.files[0]) {
+          const file = e.target.files[0];
           
-          // 2. Update the Index (Targeting the current preview index)
-          if (previewIndex >= 0 && previewIndex < newFiles.length) {
-              newFiles[previewIndex] = newItem;
-          }
+          // Generate truly unique ID to force re-render
+          const uniqueId = `replaced-${file.name}-${file.lastModified}-${Date.now()}`;
+          const newUrl = URL.createObjectURL(file);
+
+          const newItem: StagingItem = {
+              id: uniqueId,
+              type: 'NEW',
+              url: newUrl,
+              file: file
+          };
+
+          setStagingItems(currentItems => {
+              const newFiles = [...currentItems];
+              if (replacingIndex >= 0 && replacingIndex < newFiles.length) {
+                  newFiles[replacingIndex] = newItem;
+              }
+              return newFiles;
+          });
           
-          // 3. Force State Update
-          return newFiles;
-      });
+          // Reset index state to prevent accidental overwrites
+          setReplacingIndex(null);
+      }
       
-      setPreviewMenuOpen(false);
-      
-      // RESET INPUT VALUE
+      // Reset input so the same file can be selected again if needed
       e.target.value = '';
   };
 
@@ -1929,6 +1927,15 @@ function App() {
 
                   {submitStep === 'VERIFY' && stagingItems.length > 0 && (
                     <div className="flex h-full w-full">
+                       {/* GLOBAL HIDDEN INPUT FOR REPLACEMENT */}
+                       <input 
+                           type="file" 
+                           hidden 
+                           ref={replaceInputRef} 
+                           onChange={handleGlobalReplaceChange} 
+                           accept="image/*" 
+                       />
+
                        <div className="flex-1 bg-black relative group/preview-area">
                           
                           {/* OVERLAY: PENCIL MENU (TOP-RIGHT BELOW BADGES) */}
@@ -1943,12 +1950,20 @@ function App() {
                               
                               {previewMenuOpen && (
                                   <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl py-1 animate-fade-in overflow-hidden z-[70]">
-                                      {/* Hidden Input for Replace */}
-                                      <label className="w-full text-left px-4 py-3 text-sm text-white hover:bg-zinc-800 flex items-center gap-3 cursor-pointer transition-colors">
+                                      {/* REPLACED WITH STATE-BASED TRIGGER */}
+                                      <button 
+                                          onClick={() => {
+                                              // Track exactly which index we are replacing
+                                              setReplacingIndex(previewIndex);
+                                              // Trigger the hidden input
+                                              replaceInputRef.current?.click();
+                                              setPreviewMenuOpen(false);
+                                          }} 
+                                          className="w-full text-left px-4 py-3 text-sm text-white hover:bg-zinc-800 flex items-center gap-3 cursor-pointer transition-colors"
+                                      >
                                           <Upload size={14} /> Replace Image
-                                          {/* UPDATED: Uses specific replace handler */}
-                                          <input type="file" className="hidden" accept="image/*" onClick={(e) => (e.target as HTMLInputElement).value = ''} onChange={handleReplaceFile} />
-                                      </label>
+                                      </button>
+                                      
                                       <button onClick={() => {
                                           handleRemoveStagingItem(previewIndex);
                                           setPreviewMenuOpen(false);
@@ -2050,12 +2065,18 @@ function App() {
                                   
                                   {previewMenuOpen && (
                                       <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl py-1 animate-fade-in overflow-hidden z-[70]">
-                                          {/* Hidden Input for Replace */}
-                                          <label className="w-full text-left px-4 py-3 text-sm text-white hover:bg-zinc-800 flex items-center gap-3 cursor-pointer transition-colors">
+                                          {/* REPLACED WITH STATE-BASED TRIGGER (TEACHER VIEW) */}
+                                          <button 
+                                              onClick={() => {
+                                                  setReplacingIndex(previewIndex);
+                                                  replaceInputRef.current?.click();
+                                                  setPreviewMenuOpen(false);
+                                              }} 
+                                              className="w-full text-left px-4 py-3 text-sm text-white hover:bg-zinc-800 flex items-center gap-3 cursor-pointer transition-colors"
+                                          >
                                               <Upload size={14} /> Replace Image
-                                              {/* UPDATED: Uses specific replace handler */}
-                                              <input type="file" className="hidden" accept="image/*" onClick={(e) => (e.target as HTMLInputElement).value = ''} onChange={handleReplaceFile} />
-                                          </label>
+                                          </button>
+                                          
                                           <button onClick={() => {
                                               handleRemoveStagingItem(previewIndex);
                                               setPreviewMenuOpen(false);
