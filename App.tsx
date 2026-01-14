@@ -516,8 +516,10 @@ function App() {
     setTeacherSelectedStudentId(null);
   };
 
-  // UNIFIED FILE HANDLER (APPEND & REPLACE)
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, replaceIndex = -1) => {
+  // --- FILE HANDLING ---
+
+  // 1. APPEND NEW FILES
+  const handleAppendFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const files: File[] = Array.from(e.target.files);
     
@@ -529,20 +531,45 @@ function App() {
         file: file
     }));
 
-    if (replaceIndex >= 0) {
-        // REPLACE: Swap item at index
-        setStagingItems(prev => {
-            const updated = [...prev];
-            updated[replaceIndex] = newItems[0]; // Take first if multiple selected
-            return updated;
-        });
-    } else {
-        // APPEND: Add to end
-        setStagingItems(prev => [...prev, ...newItems]);
-        setPreviewIndex(prev => prev + (prev === 0 && stagingItems.length === 0 ? 0 : 0)); // Keep index stable unless empty
+    setStagingItems(prev => {
+        const updated = [...prev, ...newItems];
+        return updated;
+    });
+    
+    // If this is the first item added, ensure we view it
+    if (stagingItems.length === 0) {
+        setPreviewIndex(0);
     }
     
     setSubmitStep('VERIFY');
+    // Clear input value to allow selecting same file again if needed
+    e.target.value = '';
+  };
+
+  // 2. REPLACE CURRENT FILE
+  const handleReplaceFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!e.target.files || e.target.files.length === 0) return;
+      const file = e.target.files[0];
+      
+      const newItem: StagingItem = {
+          id: Math.random().toString(36).substr(2, 9),
+          type: 'NEW',
+          url: URL.createObjectURL(file),
+          file: file
+      };
+
+      setStagingItems(prev => {
+          const updated = [...prev];
+          // Replace the item at the current preview index
+          if (previewIndex >= 0 && previewIndex < updated.length) {
+              updated[previewIndex] = newItem;
+          }
+          return updated;
+      });
+      
+      setPreviewMenuOpen(false);
+      // Clear input
+      e.target.value = '';
   };
 
   const handleRemoveStagingItem = (index: number) => {
@@ -1382,7 +1409,7 @@ function App() {
                                   <div className="w-16 h-16 rounded-2xl bg-black border border-zinc-800 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform shadow-xl">
                                      <Upload className="text-zinc-600 group-hover:text-white transition-colors" size={24} />
                                   </div>
-                                  <span className="text-sm font-bold text-white tracking-wide block">Upload Exterior Reference</span>
+                                  <span className="text-sm font-bold text-white tracking-wide block">Upload Interior Reference</span>
                               </div>
                           )}
                           <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, setNewInteriorRef, 'references')} />
@@ -1881,8 +1908,8 @@ function App() {
                                 <span className="font-bold text-lg text-zinc-300">Click to Browse</span>
                                 <span className="text-xs text-zinc-600 mt-2">Select one or more images</span>
                             </div>
-                            {/* STORAGE OPTIMIZATION: Use handleFileSelect for local preview */}
-                            <input type="file" className="hidden" accept="image/*" multiple={!isEditingAssignmentId} onChange={(e) => handleFileSelect(e)} />
+                            {/* UPDATED: Uses specific append handler */}
+                            <input type="file" className="hidden" accept="image/*" multiple={!isEditingAssignmentId} onChange={handleAppendFile} />
                        </label>
                     </div>
                   )}
@@ -1906,10 +1933,8 @@ function App() {
                                       {/* Hidden Input for Replace */}
                                       <label className="w-full text-left px-4 py-3 text-sm text-white hover:bg-zinc-800 flex items-center gap-3 cursor-pointer transition-colors">
                                           <Upload size={14} /> Replace Image
-                                          <input type="file" className="hidden" accept="image/*" onClick={(e) => (e.target as HTMLInputElement).value = ''} onChange={(e) => {
-                                              handleFileSelect(e, previewIndex);
-                                              setPreviewMenuOpen(false);
-                                          }} />
+                                          {/* UPDATED: Uses specific replace handler */}
+                                          <input type="file" className="hidden" accept="image/*" onClick={(e) => (e.target as HTMLInputElement).value = ''} onChange={handleReplaceFile} />
                                       </label>
                                       <button onClick={() => {
                                           handleRemoveStagingItem(previewIndex);
@@ -1923,9 +1948,9 @@ function App() {
 
                           {/* MAIN PREVIEW */}
                           <ComparisonViewer 
-                            key={stagingItems[previewIndex].url}
+                            key={stagingItems[previewIndex]?.url || 'empty'}
                             refImage={selectedProjectForSubmit === 'INTERIOR' ? currentUser?.interiorRefUrl! : currentUser?.exteriorRefUrl!}
-                            renderImage={stagingItems[previewIndex].url}
+                            renderImage={stagingItems[previewIndex]?.url || ''}
                             mode={compMode}
                             setMode={setCompMode}
                             fullViewSource={fullViewSource}
@@ -1970,7 +1995,8 @@ function App() {
                                 className="w-full py-4 rounded-xl font-bold border-2 border-dashed border-zinc-700 hover:border-zinc-500 text-zinc-500 hover:text-white flex items-center justify-center gap-2 transition-all cursor-pointer"
                               >
                                   <PlusCircle size={18} /> Add New Version
-                                  <input type="file" className="hidden" accept="image/*" multiple onChange={(e) => handleFileSelect(e)} />
+                                  {/* UPDATED: Uses specific append handler */}
+                                  <input type="file" className="hidden" accept="image/*" multiple onChange={handleAppendFile} />
                               </label>
                           </div>
                        </div>
@@ -2014,10 +2040,8 @@ function App() {
                                           {/* Hidden Input for Replace */}
                                           <label className="w-full text-left px-4 py-3 text-sm text-white hover:bg-zinc-800 flex items-center gap-3 cursor-pointer transition-colors">
                                               <Upload size={14} /> Replace Image
-                                              <input type="file" className="hidden" accept="image/*" onClick={(e) => (e.target as HTMLInputElement).value = ''} onChange={(e) => {
-                                                  handleFileSelect(e, previewIndex);
-                                                  setPreviewMenuOpen(false);
-                                              }} />
+                                              {/* UPDATED: Uses specific replace handler */}
+                                              <input type="file" className="hidden" accept="image/*" onClick={(e) => (e.target as HTMLInputElement).value = ''} onChange={handleReplaceFile} />
                                           </label>
                                           <button onClick={() => {
                                               handleRemoveStagingItem(previewIndex);
@@ -2032,9 +2056,9 @@ function App() {
                               {/* MAIN PREVIEW */}
                               {stagingItems.length > 0 && (
                                   <ComparisonViewer 
-                                    key={stagingItems[previewIndex].url}
+                                    key={stagingItems[previewIndex]?.url || 'empty'}
                                     refImage={selectedProjectForSubmit === 'INTERIOR' ? allUsers.find(u => u.id === assignments.find(a => a.id === isEditingAssignmentId)?.studentId)?.interiorRefUrl! : allUsers.find(u => u.id === assignments.find(a => a.id === isEditingAssignmentId)?.studentId)?.exteriorRefUrl!}
-                                    renderImage={stagingItems[previewIndex].url}
+                                    renderImage={stagingItems[previewIndex]?.url || ''}
                                     mode={compMode}
                                     setMode={setCompMode}
                                     fullViewSource={fullViewSource}
@@ -2081,7 +2105,8 @@ function App() {
                                     className="w-full py-4 rounded-xl font-bold border-2 border-dashed border-zinc-700 hover:border-zinc-500 text-zinc-500 hover:text-white flex items-center justify-center gap-2 transition-all cursor-pointer"
                                   >
                                       <PlusCircle size={18} /> Add New Version
-                                      <input type="file" className="hidden" accept="image/*" multiple onChange={(e) => handleFileSelect(e)} />
+                                      {/* UPDATED: Uses specific append handler */}
+                                      <input type="file" className="hidden" accept="image/*" multiple onChange={handleAppendFile} />
                                   </label>
                               </div>
                            </div>
