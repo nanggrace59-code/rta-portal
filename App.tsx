@@ -555,8 +555,9 @@ function App() {
       // EXPLICIT: Create new Object URL
       const newUrl = URL.createObjectURL(file);
       
-      // EXPLICIT: Create unique ID for Key prop to force re-render
-      const uniqueId = `replaced-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      // EXPLICIT: Create unique ID using file properties as requested
+      // format: filename-timestamp-index
+      const uniqueId = `replaced-${file.name}-${file.lastModified}-${Date.now()}`;
 
       const newItem: StagingItem = {
           id: uniqueId,
@@ -579,6 +580,8 @@ function App() {
       });
       
       setPreviewMenuOpen(false);
+      
+      // RESET INPUT VALUE
       e.target.value = '';
   };
 
@@ -1958,7 +1961,7 @@ function App() {
 
                           {/* MAIN PREVIEW */}
                           <ComparisonViewer 
-                            key={stagingItems[previewIndex]?.id || 'empty-preview'}
+                            key={stagingItems[previewIndex]?.id || `empty-preview`}
                             refImage={selectedProjectForSubmit === 'INTERIOR' ? currentUser?.interiorRefUrl! : currentUser?.exteriorRefUrl!}
                             renderImage={stagingItems[previewIndex]?.url || ''}
                             mode={compMode}
