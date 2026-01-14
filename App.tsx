@@ -549,26 +549,36 @@ function App() {
   // 2. REPLACE CURRENT FILE
   const handleReplaceFile = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (!e.target.files || e.target.files.length === 0) return;
+      
       const file = e.target.files[0];
       
+      // EXPLICIT: Create new Object URL
+      const newUrl = URL.createObjectURL(file);
+      
+      // EXPLICIT: Create unique ID for Key prop to force re-render
+      const uniqueId = `replaced-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
       const newItem: StagingItem = {
-          id: Math.random().toString(36).substr(2, 9),
+          id: uniqueId,
           type: 'NEW',
-          url: URL.createObjectURL(file),
+          url: newUrl,
           file: file
       };
 
-      setStagingItems(prev => {
-          const updated = [...prev];
-          // Replace the item at the current preview index
-          if (previewIndex >= 0 && previewIndex < updated.length) {
-              updated[previewIndex] = newItem;
+      setStagingItems(currentItems => {
+          // 1. Create a New Reference (Fresh Array Copy - Strict Immutability)
+          const newFiles = [...currentItems];
+          
+          // 2. Update the Index (Targeting the current preview index)
+          if (previewIndex >= 0 && previewIndex < newFiles.length) {
+              newFiles[previewIndex] = newItem;
           }
-          return updated;
+          
+          // 3. Force State Update
+          return newFiles;
       });
       
       setPreviewMenuOpen(false);
-      // Clear input
       e.target.value = '';
   };
 
@@ -1948,7 +1958,7 @@ function App() {
 
                           {/* MAIN PREVIEW */}
                           <ComparisonViewer 
-                            key={stagingItems[previewIndex]?.url || 'empty'}
+                            key={stagingItems[previewIndex]?.id || 'empty-preview'}
                             refImage={selectedProjectForSubmit === 'INTERIOR' ? currentUser?.interiorRefUrl! : currentUser?.exteriorRefUrl!}
                             renderImage={stagingItems[previewIndex]?.url || ''}
                             mode={compMode}
@@ -2056,7 +2066,7 @@ function App() {
                               {/* MAIN PREVIEW */}
                               {stagingItems.length > 0 && (
                                   <ComparisonViewer 
-                                    key={stagingItems[previewIndex]?.url || 'empty'}
+                                    key={stagingItems[previewIndex]?.id || 'empty-preview-teacher'}
                                     refImage={selectedProjectForSubmit === 'INTERIOR' ? allUsers.find(u => u.id === assignments.find(a => a.id === isEditingAssignmentId)?.studentId)?.interiorRefUrl! : allUsers.find(u => u.id === assignments.find(a => a.id === isEditingAssignmentId)?.studentId)?.exteriorRefUrl!}
                                     renderImage={stagingItems[previewIndex]?.url || ''}
                                     mode={compMode}
