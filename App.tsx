@@ -556,7 +556,7 @@ function App() {
       const newUrl = URL.createObjectURL(file);
       
       // EXPLICIT: Create unique ID using file properties as requested
-      // format: filename-timestamp-index
+      // format: replaced-filename-timestamp-index
       const uniqueId = `replaced-${file.name}-${file.lastModified}-${Date.now()}`;
 
       const newItem: StagingItem = {
