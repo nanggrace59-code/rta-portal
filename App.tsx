@@ -1891,8 +1891,8 @@ function App() {
                     <div className="flex h-full w-full">
                        <div className="flex-1 bg-black relative group/preview-area">
                           
-                          {/* OVERLAY: PENCIL MENU (TOP-LEFT INSIDE IMAGE AREA) */}
-                          <div className="absolute top-16 left-4 z-[60]">
+                          {/* OVERLAY: PENCIL MENU (TOP-RIGHT BELOW BADGES) */}
+                          <div className="absolute top-24 right-6 z-[60]">
                               <button 
                                  onClick={(e) => { e.stopPropagation(); setPreviewMenuOpen(!previewMenuOpen); }}
                                  className="text-white hover:text-zinc-300 transition-colors drop-shadow-md p-2"
@@ -1902,11 +1902,11 @@ function App() {
                               </button>
                               
                               {previewMenuOpen && (
-                                  <div className="absolute left-0 mt-2 w-48 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl py-1 animate-fade-in overflow-hidden z-[70]">
+                                  <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl py-1 animate-fade-in overflow-hidden z-[70]">
                                       {/* Hidden Input for Replace */}
                                       <label className="w-full text-left px-4 py-3 text-sm text-white hover:bg-zinc-800 flex items-center gap-3 cursor-pointer transition-colors">
                                           <Upload size={14} /> Replace Image
-                                          <input type="file" className="hidden" accept="image/*" onChange={(e) => {
+                                          <input type="file" className="hidden" accept="image/*" onClick={(e) => (e.target as HTMLInputElement).value = ''} onChange={(e) => {
                                               handleFileSelect(e, previewIndex);
                                               setPreviewMenuOpen(false);
                                           }} />
@@ -1998,8 +1998,8 @@ function App() {
                         <div className="flex h-full w-full">
                            <div className="flex-1 bg-black relative group/preview-area">
                               
-                              {/* OVERLAY: PENCIL MENU (TOP-LEFT INSIDE IMAGE AREA) */}
-                              <div className="absolute top-16 left-4 z-[60]">
+                              {/* OVERLAY: PENCIL MENU (TOP-RIGHT BELOW BADGES) */}
+                              <div className="absolute top-24 right-6 z-[60]">
                                   <button 
                                      onClick={(e) => { e.stopPropagation(); setPreviewMenuOpen(!previewMenuOpen); }}
                                      className="text-white hover:text-zinc-300 transition-colors drop-shadow-md p-2"
@@ -2009,11 +2009,11 @@ function App() {
                                   </button>
                                   
                                   {previewMenuOpen && (
-                                      <div className="absolute left-0 mt-2 w-48 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl py-1 animate-fade-in overflow-hidden z-[70]">
+                                      <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl py-1 animate-fade-in overflow-hidden z-[70]">
                                           {/* Hidden Input for Replace */}
                                           <label className="w-full text-left px-4 py-3 text-sm text-white hover:bg-zinc-800 flex items-center gap-3 cursor-pointer transition-colors">
                                               <Upload size={14} /> Replace Image
-                                              <input type="file" className="hidden" accept="image/*" onChange={(e) => {
+                                              <input type="file" className="hidden" accept="image/*" onClick={(e) => (e.target as HTMLInputElement).value = ''} onChange={(e) => {
                                                   handleFileSelect(e, previewIndex);
                                                   setPreviewMenuOpen(false);
                                               }} />
@@ -2098,4 +2098,4 @@ function App() {
   );
 };
 
-  export default App;
+export default App;
