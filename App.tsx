@@ -1597,7 +1597,7 @@ function App() {
                   }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-zinc-800 flex items-center gap-2">
                       <Edit2 size={14} /> Edit Assignment
                   </button>
-                  {contextMenu.category === 'BOX_MODELING' && (
+                  {(contextMenu.category === 'BOX_MODELING' || contextMenu.category === 'SCENE_SETUP') && (
                       <button onClick={() => handleTeacherResetStudent(contextMenu.studentId)} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-900/20 flex items-center gap-2 border-t border-zinc-800 mt-1">
                           <AlertCircle size={14} /> Full Student Reset
                       </button>
